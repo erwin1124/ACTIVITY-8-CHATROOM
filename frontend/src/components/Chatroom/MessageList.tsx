@@ -40,56 +40,66 @@ const MessageList = ({ chatroomId }: { chatroomId?: string }) => {
   // cache of users keyed by id so we can show avatars even when message payloads don't include them
   const [usersMap, setUsersMap] = useState<Record<string, { avatarUrl?: string; displayName?: string; username?: string }>>({});
 
+  // Normalizer moved to component scope so it can be reused by socket handlers and API responses
+  const normalizeIncomingMessage = (raw: any) => {
+    if (!raw) return raw;
+    const m: any = { id: raw.id ?? raw._id ?? raw._id?.toString?.() ?? String(Math.random()), ...raw };
+
+    // normalize userId from multiple possible shapes to string/null
+    const possibleUserId = m.userId ?? m.user?._id ?? m.user?.id ?? m.sender?._id ?? m.sender?.id ?? m.fromId ?? m.from?.id ?? null;
+    m.userId = (possibleUserId !== undefined && possibleUserId !== null) ? String(possibleUserId) : null;
+
+    // normalize sender avatar from common payload shapes (many possible fields)
+    const possibleAvatar = m.userAvatar || m.avatar || m.avatarUrl || m.user?.avatarUrl || m.user?.avatar || m.user?.profile?.avatar || m.sender?.avatar || m.sender?.avatarUrl || m.from?.avatar || m.profile?.avatarUrl;
+    if (possibleAvatar) {
+      let avatarUrl = possibleAvatar;
+      if (typeof avatarUrl === 'string' && avatarUrl.startsWith('/uploads')) avatarUrl = `${BACKEND_URL}${avatarUrl}`;
+      m.userAvatar = avatarUrl;
+    }
+
+    // normalize sender name if present in common fields
+    if (!m.userName) m.userName = m.user?.displayName || m.user?.name || m.user?.username || m.sender?.displayName || m.sender?.name || m.sender?.username || m.fromName || m.from || m.displayName;
+
+    // normalize attachments to { url, type?, name? } and convert /uploads -> absolute
+    if (m.attachments && Array.isArray(m.attachments)) {
+      m.attachments = m.attachments.map((a: any) => {
+        const urlRaw = typeof a === 'string' ? a : (a && (a.url || a.path || a.href) ) || '';
+        let url = urlRaw || '';
+        if (typeof url === 'string' && url.startsWith('/uploads')) url = `${BACKEND_URL}${url}`;
+        const name = (typeof a === 'object' && a && (a.name || a.originalName)) ? (a.name || a.originalName) : undefined;
+        // infer type using mime/type when available, then extension fallbacks
+        const mimeLike = (a?.mime || a?.mimetype || a?.contentType || a?.type || '') as string;
+        const lowerMime = String(mimeLike || '').toLowerCase();
+        let type: 'image' | 'video' | 'document' = 'image';
+        if (lowerMime.includes('video') || (typeof url === 'string' && url.match(/\.(mp4|webm|mov|avi|mkv)(\?|$)/i))) type = 'video';
+        else if (lowerMime.includes('image') || (typeof url === 'string' && url.match(/\.(png|jpe?g|gif|svg|webp)(\?|$)/i))) type = 'image';
+        else if (lowerMime.includes('pdf') || lowerMime.includes('msword') || lowerMime.includes('officedocument') || (typeof url === 'string' && url.match(/\.(pdf|docx?|xlsx?|pptx?|txt|zip|rar)(\?|$)/i))) type = 'document';
+        else type = 'document';
+        return { url, type, name };
+      });
+    }
+
+    // try to fallback avatar/name from usersMap if available
+    if ((!m.userAvatar || !m.userName) && m.userId && usersMap[String(m.userId)]) {
+      const u = usersMap[String(m.userId)];
+      if (!m.userAvatar && u.avatarUrl) m.userAvatar = u.avatarUrl;
+      if ((!m.userName || m.userName === '') && (u.displayName || u.username)) m.userName = u.displayName || u.username;
+    }
+    return m;
+  };
+
   // Refs for measuring layout so we can show the picker where it is visible
   const containerRef = useRef<HTMLDivElement | null>(null);
   const messageRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const listEndRef = useRef<HTMLDivElement | null>(null);
+  // ...existing code...
 
   useEffect(() => {
     if (!chatroomId) return;
 
-    let mounted = true;
+    // (removed join/left/kick announcement handlers per request)
 
-    const normalizeIncomingMessage = (raw: any) => {
-      if (!raw) return raw;
-      const m: any = { id: raw.id ?? raw._id ?? raw._id?.toString?.() ?? String(Math.random()), ...raw };
-      // normalize userId to string/null
-      m.userId = (m.userId !== undefined && m.userId !== null) ? String(m.userId) : null;
-      // normalize sender avatar from common payload shapes
-      const possibleAvatar = m.userAvatar || m.avatar || m.avatarUrl || m.user?.avatarUrl || m.user?.avatar || m.user?.profile?.avatar || m.sender?.avatar;
-      if (possibleAvatar) {
-        let avatarUrl = possibleAvatar;
-        if (typeof avatarUrl === 'string' && avatarUrl.startsWith('/uploads')) avatarUrl = `${BACKEND_URL}${avatarUrl}`;
-        m.userAvatar = avatarUrl;
-      }
-      // normalize sender name if present in common fields
-      if (!m.userName) m.userName = m.user?.displayName || m.user?.name || m.user?.username || m.sender?.displayName || m.sender?.name || m.sender?.username || m.fromName || m.from;
-      // normalize attachments to { url, type?, name? } and convert /uploads -> absolute
-      if (m.attachments && Array.isArray(m.attachments)) {
-        m.attachments = m.attachments.map((a: any) => {
-          const urlRaw = typeof a === 'string' ? a : (a && (a.url || a.path || a.href) ) || '';
-          let url = urlRaw || '';
-          if (typeof url === 'string' && url.startsWith('/uploads')) url = `${BACKEND_URL}${url}`;
-          const name = (typeof a === 'object' && a && (a.name || a.originalName)) ? (a.name || a.originalName) : undefined;
-          // infer type using mime/type when available, then extension fallbacks
-          const mimeLike = (a?.mime || a?.mimetype || a?.contentType || a?.type || '') as string;
-          const lowerMime = String(mimeLike || '').toLowerCase();
-          let type: 'image' | 'video' | 'document' = 'image';
-          if (lowerMime.includes('video') || (typeof url === 'string' && url.match(/\.(mp4|webm|mov|avi|mkv)(\?|$)/i))) type = 'video';
-          else if (lowerMime.includes('image') || (typeof url === 'string' && url.match(/\.(png|jpe?g|gif|svg|webp)(\?|$)/i))) type = 'image';
-          else if (lowerMime.includes('pdf') || lowerMime.includes('msword') || lowerMime.includes('officedocument') || (typeof url === 'string' && url.match(/\.(pdf|docx?|xlsx?|pptx?|txt|zip|rar)(\?|$)/i))) type = 'document';
-          else type = 'document';
-          return { url, type, name };
-        });
-      }
-      // try to fallback avatar/name from usersMap if available
-      if ((!m.userAvatar || !m.userName) && m.userId && usersMap[String(m.userId)]) {
-        const u = usersMap[String(m.userId)];
-        if (!m.userAvatar && u.avatarUrl) m.userAvatar = u.avatarUrl;
-        if ((!m.userName || m.userName === '') && (u.displayName || u.username)) m.userName = u.displayName || u.username;
-      }
-      return m;
-    };
+    let mounted = true;
 
     // fetch initial messages from backend
     (async () => {
@@ -139,25 +149,56 @@ const MessageList = ({ chatroomId }: { chatroomId?: string }) => {
     // connect socket and join room
     const token = localStorage.getItem('token') || undefined;
     const socket = connectSocket(token as any);
-    const onNewMessage = (msg: any) => {
-      const normMsg = normalizeIncomingMessage(msg);
-      // append incoming message
-      setMessages(prev => {
-        // avoid duplicates
-        if (prev.some(m => m.id === normMsg.id)) return prev;
-        return [...prev, normMsg];
-      });
-      setTimeout(() => listEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 20);
+
+    // helper to merge an authoritative server message into local state
+    const mergeServerMessage = (payload: any) => {
+      try {
+        const raw = payload?.message ?? payload?.msg ?? payload;
+        if (!raw) return;
+        const norm = normalizeIncomingMessage(raw);
+        setMessages(prev => {
+          const exists = prev.some(m => m.id === norm.id);
+          if (exists) {
+            return prev.map(m => {
+              if (m.id !== norm.id) return m;
+              // Merge authoritative fields but preserve local avatar/name if server omitted them
+              return { ...m, ...norm, userAvatar: norm.userAvatar || m.userAvatar, userName: norm.userName || m.userName };
+            });
+          }
+
+          // If server message doesn't include avatar/name, try to seed from usersMap before adding
+          if ((!norm.userAvatar || !norm.userName) && norm.userId && usersMap[String(norm.userId)]) {
+            const u = usersMap[String(norm.userId)];
+            if (!norm.userAvatar && u.avatarUrl) norm.userAvatar = u.avatarUrl;
+            if ((!norm.userName || norm.userName === '') && (u.displayName || u.username)) norm.userName = u.displayName || u.username;
+          }
+
+          return [...prev, norm];
+        });
+        // scroll to bottom for new messages
+        setTimeout(() => listEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 20);
+      } catch (e) {
+        console.debug('Failed to merge server message', e);
+      }
     };
+
+    const onNewMessage = (msg: any) => mergeServerMessage(msg);
+    const onReact = (payload: any) => mergeServerMessage(payload);
+    const onUpdated = (payload: any) => mergeServerMessage(payload);
 
     socket.emit('join', chatroomId);
     socket.on('message:new', onNewMessage);
+    socket.on('message:react', onReact);
+    socket.on('message:updated', onUpdated);
 
     return () => {
       mounted = false;
       try {
         socket.emit('leave', chatroomId);
         socket.off('message:new', onNewMessage);
+        socket.off('message:react', onReact);
+        socket.off('message:updated', onUpdated);
+        // (removed join/left/kick event unsubscriptions)
       } catch (e) {
         // ignore
       }
@@ -277,7 +318,8 @@ const MessageList = ({ chatroomId }: { chatroomId?: string }) => {
     setMenuOpen({ id, position });
   };
 
-  const handleReact = (id: string, emoji: string) => {
+  const handleReact = async (id: string, emoji: string) => {
+    // optimistic update locally
     setMessages(msgs =>
       msgs.map(m => {
         if (m.id !== id) return m;
@@ -294,11 +336,42 @@ const MessageList = ({ chatroomId }: { chatroomId?: string }) => {
       })
     );
     setReactionsOpen(null);
+
+    // persist reaction to backend; server should emit an event that other clients listen to
+    try {
+      const res = await api.reactMessage(id, emoji);
+      // If server returns authoritative message object, merge it
+      if (res) {
+        const serverMsg = normalizeIncomingMessage(res);
+        setMessages(prev => prev.map(m => m.id === serverMsg.id ? { ...m, ...serverMsg } : m));
+      }
+    } catch (err) {
+      console.error('Failed to persist reaction', err);
+      // Best-effort: we could refetch message or revert optimistic change here; keep optimistic state for now
+    }
   };
 
-  const handleUnsend = (id: string) => {
-    setMessages(msgs => msgs.filter(m => m.id !== id));
+  const handleUnsend = async (id: string) => {
+    // optimistic: mark message as deleted locally so UI updates immediately
+    setMessages(msgs => msgs.map(m => m.id === id ? ({ ...m, text: '', attachments: [], deleted: true } as any) : m));
     setMenuOpen(null);
+
+    try {
+      const res = await api.unsendMessage(id);
+      // if server returns authoritative message object, merge it
+      if (res) {
+        const serverMsg = normalizeIncomingMessage(res);
+        setMessages(prev => prev.map(m => m.id === serverMsg.id ? { ...m, ...serverMsg } : m));
+      }
+    } catch (err) {
+      console.error('Failed to unsend message', err);
+      // revert optimistic change on failure (best-effort)
+      setMessages(msgs => msgs.map(m => {
+        if (m.id !== id) return m;
+        // restore a minimal "Message deleted" marker so UI isn't left empty
+        return { ...m, deleted: false } as any;
+      }));
+    }
   };
 
   // Helper to count reactions for each emoji
@@ -322,140 +395,189 @@ const MessageList = ({ chatroomId }: { chatroomId?: string }) => {
           const isMediaOnly = (!!msg.attachments && msg.attachments.length > 0) && !msg.text;
           return (
             <div key={msg.id} className={`group flex flex-col gap-2 relative px-2 py-1 transition ${msg.userId === currentUser.uid ? 'items-end' : 'items-start'}`}>
-              <div ref={el => { messageRefs.current[msg.id] = el; }} className={`flex items-end max-w-[80%] ${msg.userId === currentUser.uid ? 'flex-row-reverse gap-2' : 'gap-4'}`}>
-                {/* Avatar bubble */}
-                {msg.userId !== currentUser.uid && (
-                  <div className="w-8 h-8 rounded-full bg-blue-200 flex items-center justify-center font-bold text-blue-700 text-xs shrink-0 overflow-hidden">
-                    {msg.userAvatar ? (
-                      <img src={msg.userAvatar} alt={`${msg.userName || 'User'} avatar`} className="w-full h-full object-cover" />
-                    ) : (
-                      <span>{(msg.userName || '?')[0]}</span>
-                    )}
-                  </div>
-                )}
-                {/* Message bubble or media-only display */}
-                {isMediaOnly ? (
-                  // Media-only: show all attachments. Multiple attachments render as thumbnails/grid, single attachment appears larger.
-                  <div className="relative flex flex-col">
-                    <div className={`${msg.attachments && msg.attachments.length > 1 ? 'flex flex-wrap gap-3' : ''}`}>
-                      {msg.attachments && msg.attachments.map((att, idx) => (
-                        att.type === 'image' ? (
-                          <img
-                            key={idx}
-                            src={att.url}
-                            alt={att.name || 'sent'}
-                            className={msg.attachments!.length > 1 ? 'rounded-xl object-cover shadow-lg w-[160px] h-[120px] cursor-pointer' : 'rounded-xl object-cover shadow-lg max-w-[320px] max-h-[240px] cursor-pointer'}
-                            onClick={() => setFullScreenImage(att.url)}
-                          />
-                        ) : att.type === 'video' ? (
-                          <video key={idx} controls className={msg.attachments!.length > 1 ? 'rounded-xl bg-black shadow-lg w-[240px] h-[140px] cursor-pointer' : 'rounded-xl bg-black shadow-lg max-w-[320px] max-h-[240px]'} onClick={() => setFullScreenImage(att.url)}>
-                            <source src={att.url} />
-                          </video>
-                        ) : att.type === 'document' ? (
-                          <div key={idx} className="rounded-xl bg-white border p-3 flex items-center gap-3 max-w-[320px]">
-                            <div className="text-2xl">📄</div>
-                            <div className="flex-1 text-sm">
-                              <div className="font-medium">{att.name || 'Document'}</div>
-                              <a href={att.url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline">Download</a>
-                            </div>
-                          </div>
-                        ) : (
-                          // fallback to a simple file card
-                          <div key={idx} className="rounded-xl bg-white border p-3 flex items-center gap-3 max-w-[320px]">
-                            <div className="text-2xl">📎</div>
-                            <div className="flex-1 text-sm">
-                              <div className="font-medium">{att.name || 'Attachment'}</div>
-                              <a href={att.url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline">Open / Download</a>
-                            </div>
-                          </div>
-                        )
-                      ))}
-                    </div>
-                    {/* Reactions summary under the media */}
-                    {Object.keys(reactionCounts).length > 0 && (
-                      <div className="flex gap-1 mt-2 bg-white/90 rounded-full px-2 py-0.5 shadow text-base border w-fit">
-                        {Object.entries(reactionCounts).map(([emoji, count]) => (
-                          <span key={emoji} className="flex items-center gap-0.5">
-                            {emoji} <span className="text-xs font-bold">{count}</span>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  // Text-only or text+media inside a bubble
-                  <div className={`relative rounded-2xl px-4 py-2 shadow ${msg.userId === currentUser.uid ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-900'} flex flex-col gap-2`}>
-                    {msg.text && <span>{msg.text}</span>}
-                    {msg.attachments && msg.attachments.map((a, i) => (
-                      a.type === 'image' ? (
-                        <img key={i} src={a.url} alt={a.name || 'attachment'} className="rounded-xl mt-2 max-w-[240px] max-h-[160px] object-cover cursor-pointer" onClick={() => setFullScreenImage(a.url)} />
-                      ) : a.type === 'video' ? (
-                        <video key={i} controls className="rounded-xl mt-2 max-w-[240px] max-h-[160px] bg-black">
-                          <source src={a.url} />
-                        </video>
-                      ) : (
-                        <div key={i} className="mt-2 px-3 py-2 bg-white rounded-md border text-sm text-gray-700">{a.name}</div>
-                      )
-                    ))}
-                    {/* Reactions summary (Messenger style) */}
-                    {Object.keys(reactionCounts).length > 0 && (
-                      <div className="flex gap-1 mt-1 bg-white/80 rounded-full px-2 py-0.5 shadow text-base border w-fit">
-                        {Object.entries(reactionCounts).map(([emoji, count]) => (
-                          <span key={emoji} className="flex items-center gap-0.5">
-                            {emoji} <span className="text-xs font-bold">{count}</span>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Actions container: reaction button + menu (separate to avoid overlap) */}
-                <div className={`flex items-center ${msg.userId === currentUser.uid ? '' : ''}`}>
-                  {/* Reaction button (now outside bubble) */}
-                  <div className="relative">
-                    <button
-                      className="text-xl opacity-80 hover:opacity-100 focus:outline-none"
-                      onClick={() => toggleReactions(msg.id)}
-                      aria-label="Add reaction"
-                    >
-                      😊
-                    </button>
-
-                    {/* Reactions picker positioned relative to this actions block */}
-                    {reactionsOpen?.id === msg.id && (
-                      <div className={`flex gap-2 mt-2 absolute left-1/2 -translate-x-1/2 ${reactionsOpen.position === 'top' ? 'bottom-10' : 'top-10'} bg-white border rounded-xl px-3 py-2 shadow z-40`}>
-                        {reactionEmojis.map(emoji => (
-                          <button
-                            key={emoji}
-                            className={`text-xl hover:scale-125 transition-transform focus:outline-none ${userReaction === emoji ? 'ring-2 ring-blue-400' : ''}`}
-                            onClick={() => handleReact(msg.id, emoji)}
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Three dots menu */}
-                  <div className="relative">
-                    <button
-                      className="opacity-60 group-hover:opacity-100 text-lg px-2 focus:outline-none"
-                      onClick={() => toggleMenu(msg.id)}
-                      aria-label="More actions"
-                    >
-                      &#8942;
-                    </button>
-                    {menuOpen?.id === msg.id && (
-                      <div className={`absolute right-0 ${menuOpen.position === 'top' ? 'bottom-10' : 'top-8'} z-50 bg-white border rounded shadow-lg py-1 w-36`}>
-                        {msg.userId === currentUser.uid && (
-                          <button className="block w-full text-left px-4 py-2 hover:bg-blue-100" onClick={() => handleUnsend(msg.id)}>Unsend</button>
-                        )}
-                      </div>
-                    )}
-                  </div>
+              {/* Sender name indicator shown above messages from other users so recipients know who sent it */}
+              {msg.userId !== currentUser.uid && msg.userName && (
+                <div className="text-xs text-gray-500 ml-2 mb-0.5 select-none">
+                  {msg.userName}
                 </div>
+              )}
+              <div ref={el => { messageRefs.current[msg.id] = el; }} className={`flex items-end max-w-[80%] ${msg.userId === currentUser.uid ? 'flex-row-reverse gap-2' : 'gap-4'}`}>
+                {(() => {
+                  const isDeleted = Boolean((msg as any).deleted);
+                  if (isDeleted) {
+                    const isOwner = msg.userId === currentUser.uid;
+                    // For owner: keep compact 'You deleted a message' placeholder (no avatar)
+                    if (isOwner) {
+                      return (
+                        <div className="w-full flex items-center justify-center">
+                          <div className={`px-3 py-1 rounded-full text-sm ${isOwner ? 'bg-gray-200 text-gray-700' : 'bg-white text-gray-500'} shadow w-fit`}>
+                            {isOwner ? 'You deleted a message' : 'Message deleted'}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // For other users: render avatar + deleted placeholder so recipients still see who sent it
+                    const avatarSrc = (msg as any).userAvatar || (msg.userId && usersMap[String(msg.userId)]?.avatarUrl) || undefined;
+                    const displayInitial = ((msg as any).userName || (msg.userId && usersMap[String(msg.userId)]?.displayName) || '?')[0];
+
+                    return (
+                      <div className="w-full flex items-center gap-4">
+                        {/* Avatar for sender */}
+                        <div className="w-8 h-8 rounded-full bg-blue-200 flex items-center justify-center font-bold text-blue-700 text-xs shrink-0 overflow-hidden">
+                          {avatarSrc ? (
+                            <img src={avatarSrc} alt={`${(msg as any).userName || 'User'} avatar`} className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{displayInitial}</span>
+                          )}
+                        </div>
+
+                        {/* Deleted message placeholder bubble */}
+                        <div className="px-3 py-1 rounded-full text-sm bg-white text-gray-500 shadow w-fit">
+                          Message deleted
+                        </div>
+                      </div>
+                    );
+                  }
+                  // not deleted: render avatar + bubble + actions
+                  return (
+                    <>
+                      {/* Avatar bubble */}
+                      {msg.userId !== currentUser.uid && (
+                        <div className="w-8 h-8 rounded-full bg-blue-200 flex items-center justify-center font-bold text-blue-700 text-xs shrink-0 overflow-hidden">
+                          {msg.userAvatar ? (
+                            <img src={msg.userAvatar} alt={`${msg.userName || 'User'} avatar`} className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{(msg.userName || '?')[0]}</span>
+                          )}
+                        </div>
+                      )}
+                      {/* Message bubble or media-only display */}
+                      {isMediaOnly ? (
+                        // Media-only: show all attachments. Multiple attachments render as thumbnails/grid, single attachment appears larger.
+                        <div className="relative flex flex-col">
+                          <div className={`${msg.attachments && msg.attachments.length > 1 ? 'flex flex-wrap gap-3' : ''}`}>
+                            {msg.attachments && msg.attachments.map((att, idx) => (
+                              att.type === 'image' ? (
+                                <img
+                                  key={idx}
+                                  src={att.url}
+                                  alt={att.name || 'sent'}
+                                  className={msg.attachments!.length > 1 ? 'rounded-xl object-cover shadow-lg w-[160px] h-[120px] cursor-pointer' : 'rounded-xl object-cover shadow-lg max-w-[320px] max-h-[240px] cursor-pointer'}
+                                  onClick={() => setFullScreenImage(att.url)}
+                                />
+                              ) : att.type === 'video' ? (
+                                <video key={idx} controls className={msg.attachments!.length > 1 ? 'rounded-xl bg-black shadow-lg w-[240px] h-[140px] cursor-pointer' : 'rounded-xl bg-black shadow-lg max-w-[320px] max-h-[240px]'} onClick={() => setFullScreenImage(att.url)}>
+                                  <source src={att.url} />
+                                </video>
+                              ) : att.type === 'document' ? (
+                                <div key={idx} className="rounded-xl bg-white border p-3 flex items-center gap-3 max-w-[320px]">
+                                  <div className="text-2xl">📄</div>
+                                  <div className="flex-1 text-sm">
+                                    <div className="font-medium">{att.name || 'Document'}</div>
+                                    <a href={att.url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline">Download</a>
+                                  </div>
+                                </div>
+                              ) : (
+                                // fallback to a simple file card
+                                <div key={idx} className="rounded-xl bg-white border p-3 flex items-center gap-3 max-w-[320px]">
+                                  <div className="text-2xl">📎</div>
+                                  <div className="flex-1 text-sm">
+                                    <div className="font-medium">{att.name || 'Attachment'}</div>
+                                    <a href={att.url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline">Open / Download</a>
+                                  </div>
+                                </div>
+                              )
+                            ))}
+                          </div>
+                          {/* Reactions summary under the media */}
+                          {Object.keys(reactionCounts).length > 0 && (
+                            <div className="flex gap-1 mt-2 bg-white/90 rounded-full px-2 py-0.5 shadow text-base border w-fit">
+                              {Object.entries(reactionCounts).map(([emoji, count]) => (
+                                <span key={emoji} className="flex items-center gap-0.5">
+                                  {emoji} <span className="text-xs font-bold">{count}</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        // Text-only or text+media inside a bubble
+                        <div className={`relative rounded-2xl px-4 py-2 shadow ${msg.userId === currentUser.uid ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-900'} flex flex-col gap-2`}>
+                          {msg.text && <span>{msg.text}</span>}
+                          {msg.attachments && msg.attachments.map((a, i) => (
+                            a.type === 'image' ? (
+                              <img key={i} src={a.url} alt={a.name || 'attachment'} className="rounded-xl mt-2 max-w-[240px] max-h-[160px] object-cover cursor-pointer" onClick={() => setFullScreenImage(a.url)} />
+                            ) : a.type === 'video' ? (
+                              <video key={i} controls className="rounded-xl mt-2 max-w-[240px] max-h-[160px] bg-black">
+                                <source src={a.url} />
+                              </video>
+                            ) : (
+                              <div key={i} className="mt-2 px-3 py-2 bg-white rounded-md border text-sm text-gray-700">{a.name}</div>
+                            )
+                          ))}
+                          {/* Reactions summary (Messenger style) */}
+                          {Object.keys(reactionCounts).length > 0 && (
+                            <div className="flex gap-1 mt-1 bg-white/80 rounded-full px-2 py-0.5 shadow text-base border w-fit">
+                              {Object.entries(reactionCounts).map(([emoji, count]) => (
+                                <span key={emoji} className="flex items-center gap-0.5">
+                                  {emoji} <span className="text-xs font-bold">{count}</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Actions container: reaction button + menu (separate to avoid overlap) */}
+                      <div className={`flex items-center ${msg.userId === currentUser.uid ? '' : ''}`}>
+                        {/* Reaction button (now outside bubble) */}
+                        <div className="relative">
+                          <button
+                            className="text-xl opacity-80 hover:opacity-100 focus:outline-none"
+                            onClick={() => toggleReactions(msg.id)}
+                            aria-label="Add reaction"
+                          >
+                            😊
+                          </button>
+
+                          {/* Reactions picker positioned relative to this actions block */}
+                          {reactionsOpen?.id === msg.id && (
+                            <div className={`flex gap-2 mt-2 absolute left-1/2 -translate-x-1/2 ${reactionsOpen.position === 'top' ? 'bottom-10' : 'top-10'} bg-white border rounded-xl px-3 py-2 shadow z-40`}>
+                              {reactionEmojis.map(emoji => (
+                                <button
+                                  key={emoji}
+                                  className={`text-xl hover:scale-125 transition-transform focus:outline-none ${userReaction === emoji ? 'ring-2 ring-blue-400' : ''}`}
+                                  onClick={() => handleReact(msg.id, emoji)}
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Three dots menu */}
+                        <div className="relative">
+                          <button
+                            className="opacity-60 group-hover:opacity-100 text-lg px-2 focus:outline-none"
+                            onClick={() => toggleMenu(msg.id)}
+                            aria-label="More actions"
+                          >
+                            &#8942;
+                          </button>
+                          {menuOpen?.id === msg.id && (
+                            <div className={`absolute right-0 ${menuOpen.position === 'top' ? 'bottom-10' : 'top-8'} z-50 bg-white border rounded shadow-lg py-1 w-36`}>
+                              {msg.userId === currentUser.uid && (
+                                <button className="block w-full text-left px-4 py-2 hover:bg-blue-100" onClick={() => handleUnsend(msg.id)}>Unsend</button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           );
