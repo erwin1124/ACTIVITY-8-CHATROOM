@@ -1,0 +1,61 @@
+{
+  "info": {
+    "name": "Activity-8 API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth Signup",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"email\": \"test@example.com\", \"password\": \"password\", \"displayName\": \"Test User\" }"
+        },
+        "url": {
+          "raw": "http://localhost:4000/auth/signup",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "4000",
+          "path": ["auth","signup"]
+        }
+      }
+    },
+    {
+      "name": "Auth Login",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": { "mode": "raw", "raw": "{ \"email\": \"test@example.com\", \"password\": \"password\" }" },
+        "url": { "raw": "http://localhost:4000/auth/login", "protocol": "http", "host": ["localhost"], "port": "4000", "path": ["auth","login"] }
+      }
+    },
+    {
+      "name": "Create Chatroom (protected)",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer <JWT_TOKEN>" } ],
+        "body": { "mode": "raw", "raw": "{ \"name\": \"Room A\" }" },
+        "url": { "raw": "http://localhost:4000/chatrooms", "protocol": "http", "host": ["localhost"], "port": "4000", "path": ["chatrooms"] }
+      }
+    },
+    {
+      "name": "List Chatrooms",
+      "request": { "method": "GET", "url": { "raw": "http://localhost:4000/chatrooms", "protocol": "http", "host": ["localhost"], "port": "4000", "path": ["chatrooms"] } }
+    },
+    {
+      "name": "Send Message (protected)",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer <JWT_TOKEN>" } ],
+        "body": { "mode": "raw", "raw": "{ \"chatroomId\": \"<CHATROOM_ID>\", \"text\": \"Hello from Postman\", \"attachments\": null }" },
+        "url": { "raw": "http://localhost:4000/messages", "protocol": "http", "host": ["localhost"], "port": "4000", "path": ["messages"] }
+      }
+    },
+    {
+      "name": "List Messages for Chatroom",
+      "request": { "method": "GET", "url": { "raw": "http://localhost:4000/messages/chatroom/<CHATROOM_ID>", "protocol": "http", "host": ["localhost"], "port": "4000", "path": ["messages","chatroom","<CHATROOM_ID>"] } }
+    }
+  ]
+}

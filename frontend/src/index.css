@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Ensure the app background covers the entire viewport and remove white margins */
+html, body, #root {
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  /* Prevent the browser-level scrollbar; use internal scrolling for pages */
+  overflow: hidden;
+}
+
+/* Make root a flex column so inner containers can size and scroll independently */
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* Ensure direct children of root can shrink and use internal scrolling
+   (important: many chat/page containers must set min-height:0 to allow flex children to overflow internally)
+*/
+#root > *,
+main,
+.app,
+.page,
+.chatroom-page,
+.home-page,
+.login-page,
+.profile-page {
+  /* allow these roots to size with flex but do not force them to become flex containers
+     (some pages/components rely on their own internal layout and forcing display:flex changed visuals)
+  */
+  flex: 1 1 auto;
+  min-height: 0;
+  /* removed display:flex and flex-direction to avoid overriding component-level layouts */
+}
+
+/* Helpful utility override for message areas if components use these classnames
+   (keeps message list scrolling internally and reserves space for fixed inputs)
+*/
+.messages-area,
+.messages-list,
+.chat-messages {
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Reserve space at the bottom so fixed message input won't overlap the last message
+   Components already add padding (e.g., pb-24). This rule is a safety net for any container using the helper class below.
+*/
+.messages-area.with-input-padding {
+  padding-bottom: 6rem; /* ~96px */
+}
+
+/* Global background matching app gradients used in pages */
+body {
+  background: linear-gradient(135deg, #60a5fa 0%, #8b5cf6 100%);
+}
