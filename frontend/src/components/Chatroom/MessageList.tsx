@@ -259,6 +259,24 @@ const MessageList = ({ chatroomId }: { chatroomId?: string }) => {
     }
   }, [fullScreenImage]);
 
+  // Autoplay modal video when opened / when source changes
+  useEffect(() => {
+    if (fullScreenType !== 'video') return;
+    if (!fullScreenImage) return;
+
+    const t = window.setTimeout(() => {
+      const v = videoRef.current;
+      if (!v) return;
+      try {
+        v.currentTime = 0;
+        const p = v.play();
+        if (p && typeof (p as any).catch === 'function') (p as any).catch(() => {});
+      } catch {}
+    }, 0);
+
+    return () => window.clearTimeout(t);
+  }, [fullScreenType, fullScreenImage]);
+
   // helper to determine attachment type from provided type or url
   const inferTypeFrom = (url: string | undefined, provided?: string | null) => {
     if (provided === 'video' || provided === 'image') return provided as 'video' | 'image';
@@ -384,6 +402,13 @@ const MessageList = ({ chatroomId }: { chatroomId?: string }) => {
     return counts;
   };
 
+  // add a tiny helper so all click handlers behave the same
+  const openMedia = (url: string, type?: 'image' | 'video' | 'document') => {
+    const t = (type || inferTypeFrom(url)) as any;
+    setFullScreenType(t);
+    setFullScreenImage(url);
+  };
+
   return (
     <div ref={containerRef} className="bg-white/90 rounded-xl shadow p-4 flex flex-col gap-4 w-full h-full min-h-0">
       {/* ...existing code... (reply UI removed) */}
@@ -464,10 +489,20 @@ const MessageList = ({ chatroomId }: { chatroomId?: string }) => {
                                   src={att.url}
                                   alt={att.name || 'sent'}
                                   className={msg.attachments!.length > 1 ? 'rounded-xl object-cover shadow-lg w-[160px] h-[120px] cursor-pointer' : 'rounded-xl object-cover shadow-lg max-w-[320px] max-h-[240px] cursor-pointer'}
-                                  onClick={() => setFullScreenImage(att.url)}
+                                  onClick={() => openMedia(att.url, 'image')}
                                 />
                               ) : att.type === 'video' ? (
-                                <video key={idx} controls className={msg.attachments!.length > 1 ? 'rounded-xl bg-black shadow-lg w-[240px] h-[140px] cursor-pointer' : 'rounded-xl bg-black shadow-lg max-w-[320px] max-h-[240px]'} onClick={() => setFullScreenImage(att.url)}>
+                                <video
+                                  key={idx}
+                                  controls
+                                  className={msg.attachments!.length > 1 ? 'rounded-xl bg-black shadow-lg w-[240px] h-[140px] cursor-pointer' : 'rounded-xl bg-black shadow-lg max-w-[320px] max-h-[240px] cursor-pointer'}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    try { (e.currentTarget as HTMLVideoElement).pause(); } catch {}
+                                    openMedia(att.url, 'video');
+                                  }}
+                                >
                                   <source src={att.url} />
                                 </video>
                               ) : att.type === 'document' ? (
@@ -507,9 +542,25 @@ const MessageList = ({ chatroomId }: { chatroomId?: string }) => {
                           {msg.text && <span>{msg.text}</span>}
                           {msg.attachments && msg.attachments.map((a, i) => (
                             a.type === 'image' ? (
-                              <img key={i} src={a.url} alt={a.name || 'attachment'} className="rounded-xl mt-2 max-w-[240px] max-h-[160px] object-cover cursor-pointer" onClick={() => setFullScreenImage(a.url)} />
+                              <img
+                                key={i}
+                                src={a.url}
+                                alt={a.name || 'attachment'}
+                                className="rounded-xl mt-2 max-w-[240px] max-h-[160px] object-cover cursor-pointer"
+                                onClick={() => openMedia(a.url, 'image')}
+                              />
                             ) : a.type === 'video' ? (
-                              <video key={i} controls className="rounded-xl mt-2 max-w-[240px] max-h-[160px] bg-black">
+                              <video
+                                key={i}
+                                controls
+                                className="rounded-xl mt-2 max-w-[240px] max-h-[160px] bg-black cursor-pointer"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  try { (e.currentTarget as HTMLVideoElement).pause(); } catch {}
+                                  openMedia(a.url, 'video');
+                                }}
+                              >
                                 <source src={a.url} />
                               </video>
                             ) : (
