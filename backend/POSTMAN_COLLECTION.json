@@ -5,57 +5,213 @@
   },
   "item": [
     {
-      "name": "Auth Signup",
+      "name": "Auth - Signup",
       "request": {
         "method": "POST",
-        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{ \"email\": \"test@example.com\", \"password\": \"password\", \"displayName\": \"Test User\" }"
+          "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password\",\n  \"displayName\": \"Test User\",\n  \"username\": \"testuser\"\n}"
         },
-        "url": {
-          "raw": "http://localhost:4000/auth/signup",
-          "protocol": "http",
-          "host": ["localhost"],
-          "port": "4000",
-          "path": ["auth","signup"]
+        "url": { "raw": "{{baseUrl}}/auth/signup" }
+      }
+    },
+    {
+      "name": "Auth - Login (stores token)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "let json = {};",
+              "try { json = pm.response.json(); } catch (e) {}",
+              "if (json?.token) pm.environment.set('token', json.token);",
+              "if (json?.user?.id) pm.environment.set('userId', json.user.id);"
+            ]
+          }
         }
-      }
-    },
-    {
-      "name": "Auth Login",
+      ],
       "request": {
         "method": "POST",
-        "header": [ { "key": "Content-Type", "value": "application/json" } ],
-        "body": { "mode": "raw", "raw": "{ \"email\": \"test@example.com\", \"password\": \"password\" }" },
-        "url": { "raw": "http://localhost:4000/auth/login", "protocol": "http", "host": ["localhost"], "port": "4000", "path": ["auth","login"] }
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/auth/login" }
       }
     },
     {
-      "name": "Create Chatroom (protected)",
+      "name": "Auth - Me (protected)",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/auth/me" }
+      }
+    },
+    {
+      "name": "Auth - Update Me (protected)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"displayName\": \"Test User Updated\",\n  \"avatarUrl\": \"\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/auth/me" }
+      }
+    },
+    {
+      "name": "Auth - List Users",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/auth/users" }
+      }
+    },
+    {
+      "name": "Chatrooms - Create (protected) (stores chatroomId)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "let json = {};",
+              "try { json = pm.response.json(); } catch (e) {}",
+              "const id = json?.id || json?._id || json?.chatroom?.id || json?.chatroom?._id;",
+              "if (id) pm.environment.set('chatroomId', String(id));"
+            ]
+          }
+        }
+      ],
       "request": {
         "method": "POST",
-        "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer <JWT_TOKEN>" } ],
-        "body": { "mode": "raw", "raw": "{ \"name\": \"Room A\" }" },
-        "url": { "raw": "http://localhost:4000/chatrooms", "protocol": "http", "host": ["localhost"], "port": "4000", "path": ["chatrooms"] }
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"Room A\"\n}" },
+        "url": { "raw": "{{baseUrl}}/chatrooms" }
       }
     },
     {
-      "name": "List Chatrooms",
-      "request": { "method": "GET", "url": { "raw": "http://localhost:4000/chatrooms", "protocol": "http", "host": ["localhost"], "port": "4000", "path": ["chatrooms"] } }
+      "name": "Chatrooms - List (protected)",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/chatrooms" }
+      }
     },
     {
-      "name": "Send Message (protected)",
+      "name": "Chatrooms - Get By Id",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/chatrooms/{{chatroomId}}" }
+      }
+    },
+    {
+      "name": "Chatrooms - Join (protected)",
       "request": {
         "method": "POST",
-        "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer <JWT_TOKEN>" } ],
-        "body": { "mode": "raw", "raw": "{ \"chatroomId\": \"<CHATROOM_ID>\", \"text\": \"Hello from Postman\", \"attachments\": null }" },
-        "url": { "raw": "http://localhost:4000/messages", "protocol": "http", "host": ["localhost"], "port": "4000", "path": ["messages"] }
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/chatrooms/{{chatroomId}}/join" }
       }
     },
     {
-      "name": "List Messages for Chatroom",
-      "request": { "method": "GET", "url": { "raw": "http://localhost:4000/messages/chatroom/<CHATROOM_ID>", "protocol": "http", "host": ["localhost"], "port": "4000", "path": ["messages","chatroom","<CHATROOM_ID>"] } }
+      "name": "Chatrooms - Leave (protected)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/chatrooms/{{chatroomId}}/leave" }
+      }
+    },
+    {
+      "name": "Chatrooms - Kick (protected)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"targetUserId\": \"{{userId}}\"\n}" },
+        "url": { "raw": "{{baseUrl}}/chatrooms/{{chatroomId}}/kick" }
+      }
+    },
+    {
+      "name": "Chatrooms - Delete (protected)",
+      "request": {
+        "method": "DELETE",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/chatrooms/{{chatroomId}}" }
+      }
+    },
+    {
+      "name": "Files - Upload (multipart)",
+      "request": {
+        "method": "POST",
+        "body": { "mode": "formdata", "formdata": [{ "key": "files", "type": "file", "src": [] }] },
+        "url": { "raw": "{{baseUrl}}/files/upload" }
+      }
+    },
+    {
+      "name": "Messages - Send (protected) (stores messageId if returned)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "let json = {};",
+              "try { json = pm.response.json(); } catch (e) {}",
+              "const id = json?.id || json?._id || json?.message?.id || json?.message?._id;",
+              "if (id) pm.environment.set('messageId', String(id));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"chatroomId\": \"{{chatroomId}}\",\n  \"text\": \"Hello from Postman\",\n  \"attachments\": []\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/messages" }
+      }
+    },
+    {
+      "name": "Messages - List For Chatroom",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/messages/chatroom/{{chatroomId}}" }
+      }
+    },
+    {
+      "name": "Messages - React (protected)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"emoji\": \"👍\"\n}" },
+        "url": { "raw": "{{baseUrl}}/messages/{{messageId}}/react" }
+      }
+    },
+    {
+      "name": "Messages - Unsend (protected)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/messages/{{messageId}}/unsend" }
+      }
     }
   ]
 }
