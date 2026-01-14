@@ -25,7 +25,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // Configure CORS. Accept multiple comma-separated origins in FRONTEND_ORIGIN.
-  const frontendOrigin = process.env.FRONTEND_ORIGIN; // e.g. "http://localhost:5173,http://localhost:5174"
+  const frontendOrigin = process.env.FRONTEND_ORIGIN; 
   if (!frontendOrigin) {
     // no origin configured: allow all origins (no credentials)
     app.enableCors({

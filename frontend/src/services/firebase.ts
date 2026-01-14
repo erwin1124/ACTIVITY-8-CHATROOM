@@ -1,5 +1,4 @@
-// firebase.ts removed - project no longer uses Firebase
-// Keep stubs so existing imports don't break immediately.
+
 export async function getIdToken() {
   // Frontend will use backend JWT stored in localStorage under 'token'
   return localStorage.getItem('token');
