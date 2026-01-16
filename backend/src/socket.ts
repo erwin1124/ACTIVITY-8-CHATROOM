@@ -32,7 +32,7 @@ export function initSocket(server: any, opts: any = {}) {
   io.on('connection', (socket: any) => {
     console.log('[socket] client connected', socket.id, socket.user ? socket.user.uid : '(no user)');
 
-    // If you already attach socket.user somewhere, this will work:
+    
     const uid = socket?.user?.uid;
     if (uid) socket.join(`user:${String(uid)}`);
 
