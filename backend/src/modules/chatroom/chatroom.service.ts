@@ -130,7 +130,13 @@ export class ChatroomService {
       await User.findByIdAndUpdate(targetUserId, { $pull: { joinedChatrooms: chatroomId } }).lean();
     }
     const io = getIO();
+
+    // keep broadcast so others update member list
     if (io) io.emit('chatroom:member:kicked', { chatroomId, userId: tStr });
+
+    // NEW: tell the kicked user directly (requires "user room" in socket.ts)
+    if (io) io.to(`user:${tStr}`).emit('chatroom:kicked', { chatroomId, userId: tStr });
+
     return { ok: true };
   }
 

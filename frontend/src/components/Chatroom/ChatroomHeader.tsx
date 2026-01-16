@@ -115,6 +115,22 @@ const ChatroomHeader = ({ chatroomId }: { chatroomId?: string }) => {
     };
   }, [chatroomId, refreshChatroomHeader]);
 
+  useEffect(() => {
+    if (!chatroomId) return;
+
+    const token = localStorage.getItem('token') || undefined;
+    const socket = connectSocket(token as any);
+
+    const onKicked = (payload: any) => {
+      if (String(payload?.chatroomId) !== String(chatroomId)) return;
+      alert('You were removed from this chatroom.');
+      window.location.href = '/home'; // change to your route
+    };
+
+    socket.on('chatroom:kicked', onKicked);
+    return () => socket.off('chatroom:kicked', onKicked);
+  }, [chatroomId]);
+
   // Fetch messages' attachments for media/files tab when panel opens or tab changes
   useEffect(() => {
     if (!panelOpen || !chatroomId) return;

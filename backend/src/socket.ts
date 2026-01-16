@@ -1,9 +1,10 @@
-let io: any = null;
+import { Server } from 'socket.io';
+
+let io: Server | null = null;
 
 export function initSocket(server: any, opts: any = {}) {
   if (io) return io;
 
-  const { Server } = require('socket.io');
   const jwt = require('jsonwebtoken');
 
   io = new Server(server, {
@@ -31,6 +32,10 @@ export function initSocket(server: any, opts: any = {}) {
   io.on('connection', (socket: any) => {
     console.log('[socket] client connected', socket.id, socket.user ? socket.user.uid : '(no user)');
 
+    // If you already attach socket.user somewhere, this will work:
+    const uid = socket?.user?.uid;
+    if (uid) socket.join(`user:${String(uid)}`);
+
     if (socket.user) {
       io.emit('user:online', { uid: socket.user.uid, displayName: socket.user.displayName || socket.user.email });
     }
@@ -54,9 +59,5 @@ export function initSocket(server: any, opts: any = {}) {
 }
 
 export function getIO() {
-  if (!io) {
-    console.warn('[socket] io not initialized yet');
-    return null;
-  }
   return io;
 }
