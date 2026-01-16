@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api } from '../../services/api';
 import { useNavigate } from 'react-router-dom';
+import { connectSocket } from '../../services/socket';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
 
@@ -20,31 +21,99 @@ const ChatroomHeader = ({ chatroomId }: { chatroomId?: string }) => {
   const [mediaItems, setMediaItems] = useState<Array<{ url: string; type: string; name?: string; messageId?: string }>>([]);
   const [fileItems, setFileItems] = useState<Array<{ url: string; name?: string; messageId?: string }>>([]);
 
+  // --- NEW: factor member fetching into a reusable function
+  const refreshChatroomHeader = useCallback(async () => {
+    if (!chatroomId) return;
+    try {
+      const res: any = await api.getChatroom(chatroomId);
+      if (!res) return;
+
+      setChatroomName(res.name || 'Chatroom');
+      setOwnerId(res.ownerId || null);
+
+      try {
+        const all: any[] = await api.getUsers();
+        const roomMembers = (res.members || [])
+          .map((mid: string) => all.find(u => u.id === mid))
+          .filter(Boolean);
+
+        const normalized = roomMembers.map((u: any) => ({
+          ...u,
+          avatarUrl:
+            u?.avatarUrl && typeof u.avatarUrl === 'string' && u.avatarUrl.startsWith('/uploads')
+              ? `${BACKEND_URL}${u.avatarUrl}`
+              : (u?.avatarUrl || u?.avatar || ''),
+        }));
+
+        setMembers(normalized as any);
+
+        // derive membership from localStorage user
+        const user = localStorage.getItem('user');
+        try {
+          const cur = user ? JSON.parse(user) : null;
+          setIsMember(!!roomMembers.find((m: any) => m && m.id === cur?.id));
+        } catch (e) {}
+      } catch (e) {
+        // fallback
+        setMembers((res.members || []).map((m: string) => ({ id: m, displayName: m })));
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [chatroomId]);
+
   useEffect(() => {
     const onCloseRequest = () => setPanelOpen(false);
     window.addEventListener('chat:close-panel', onCloseRequest as EventListener);
-    if (!chatroomId) return;
-    api.getChatroom(chatroomId).then((res: any) => {
-      if (!res) return;
-      setChatroomName(res.name || 'Chatroom');
-      setMembers([]);
-      setOwnerId(res.ownerId || null);
-      // fetch users list and filter by members
-      api.getUsers().then((all: any[]) => {
-        const roomMembers = (res.members || []).map((mid: string) => all.find(u => u.id === mid)).filter(Boolean);
-        // normalize avatar urls
-        const normalized = roomMembers.map((u: any) => ({ ...u, avatarUrl: u?.avatarUrl && typeof u.avatarUrl === 'string' && u.avatarUrl.startsWith('/uploads') ? `${BACKEND_URL}${u.avatarUrl}` : u?.avatarUrl || u?.avatar || '' }));
-        setMembers(normalized as any);
-        // derive membership
-        const user = localStorage.getItem('user');
-        try { const cur = user ? JSON.parse(user) : null; setIsMember(!!roomMembers.find((m: any) => m && m.id === cur?.id)); } catch(e) {}
-      }).catch(() => {
-        // fallback: just map ids
-        setMembers((res.members || []).map((m: string) => ({ id: m, displayName: m })));
-      });
-    }).catch(() => {});
+
+    // initial load
+    refreshChatroomHeader();
+
     return () => window.removeEventListener('chat:close-panel', onCloseRequest as EventListener);
-  }, [chatroomId]);
+  }, [refreshChatroomHeader]);
+
+  // --- NEW: subscribe to realtime member updates via socket
+  useEffect(() => {
+    if (!chatroomId) return;
+
+    const token = localStorage.getItem('token') || undefined;
+    const socket = connectSocket(token as any);
+
+    // join socket room so server can target events to this chatroom (your socket.ts supports 'join')
+    socket.emit('join', chatroomId);
+
+    const onMemberChanged = async (payload: any) => {
+      const id = payload?.chatroomId;
+      if (!id || String(id) !== String(chatroomId)) return;
+      await refreshChatroomHeader();
+    };
+
+    const onOwnerChanged = async (payload: any) => {
+      const id = payload?.chatroomId;
+      if (!id || String(id) !== String(chatroomId)) return;
+      // owner changed affects UI badge and kick permissions
+      await refreshChatroomHeader();
+    };
+
+    socket.on('chatroom:member:joined', onMemberChanged);
+    socket.on('chatroom:member:left', onMemberChanged);
+    socket.on('chatroom:member:kicked', onMemberChanged);
+    socket.on('chatroom:owner:changed', onOwnerChanged);
+    socket.on('chatroom:deleted', onMemberChanged);
+
+    return () => {
+      try {
+        socket.emit('leave', chatroomId);
+        socket.off('chatroom:member:joined', onMemberChanged);
+        socket.off('chatroom:member:left', onMemberChanged);
+        socket.off('chatroom:member:kicked', onMemberChanged);
+        socket.off('chatroom:owner:changed', onOwnerChanged);
+        socket.off('chatroom:deleted', onMemberChanged);
+      } catch (e) {
+        // ignore
+      }
+    };
+  }, [chatroomId, refreshChatroomHeader]);
 
   // Fetch messages' attachments for media/files tab when panel opens or tab changes
   useEffect(() => {
@@ -86,10 +155,7 @@ const ChatroomHeader = ({ chatroomId }: { chatroomId?: string }) => {
     try {
       await api.joinChatroom(chatroomId);
       // refresh members
-      const res: any = await api.getChatroom(chatroomId);
-      const all: any[] = await api.getUsers();
-      const roomMembers = (res.members || []).map((mid: string) => all.find(u => u.id === mid)).filter(Boolean);
-      setMembers(roomMembers as any);
+      await refreshChatroomHeader();
       setIsMember(true);
     } catch (err) { console.error(err); alert('Failed to join'); }
   };
@@ -98,10 +164,7 @@ const ChatroomHeader = ({ chatroomId }: { chatroomId?: string }) => {
     if (!chatroomId) return;
     try {
       await api.leaveChatroom(chatroomId);
-      const res: any = await api.getChatroom(chatroomId);
-      const all: any[] = await api.getUsers();
-      const roomMembers = (res.members || []).map((mid: string) => all.find(u => u.id === mid)).filter(Boolean);
-      setMembers(roomMembers as any);
+      await refreshChatroomHeader();
       setIsMember(false);
     } catch (err) { console.error(err); alert('Failed to leave'); }
   };
@@ -109,11 +172,7 @@ const ChatroomHeader = ({ chatroomId }: { chatroomId?: string }) => {
   const handleKickMember = async (targetId: string) => {
     try {
       await api.kickChatroomMember(chatroomId || '', targetId);
-      // refresh members
-      const res: any = await api.getChatroom(chatroomId || '');
-      const all: any[] = await api.getUsers();
-      const roomMembers = (res.members || []).map((mid: string) => all.find(u => u.id === mid)).filter(Boolean);
-      setMembers(roomMembers as any);
+      await refreshChatroomHeader();
       alert('Member kicked');
     } catch (err) {
       console.error(err);

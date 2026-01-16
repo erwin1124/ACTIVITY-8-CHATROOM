@@ -37,7 +37,7 @@ export class FilesController {
           try {
             fs.copyFileSync(f.path, path.join(uploadsDir, filename));
           } catch (e) {
-            // ignore
+            
           }
         }
       }

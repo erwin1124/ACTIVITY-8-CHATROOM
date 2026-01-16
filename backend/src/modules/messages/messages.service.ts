@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import mongoose from 'mongoose';
 import { getIO } from '../../socket';
 
@@ -14,6 +14,20 @@ const MessageSchema = new mongoose.Schema({
   deletedBy: { type: String, default: null },
 });
 const Message = mongoose.models.Message || mongoose.model('Message', MessageSchema);
+
+// NEW: minimal Chatroom model so we can enforce membership
+const ChatroomSchema =
+  (mongoose.models.Chatroom && (mongoose.models.Chatroom as any).schema) ||
+  new mongoose.Schema(
+    {
+      name: String,
+      ownerId: String,
+      members: [String],
+      createdAt: { type: Date, default: Date.now },
+    },
+    { collection: 'chatrooms' } // optional; safe even if collection name differs
+  );
+const Chatroom = mongoose.models.Chatroom || mongoose.model('Chatroom', ChatroomSchema);
 
 // helper: safely fetch user metadata (displayName, avatarUrl) if User model is available
 async function fetchUserMeta(userId: string) {
@@ -32,6 +46,20 @@ async function fetchUserMeta(userId: string) {
 @Injectable()
 export class MessagesService {
   async send(chatroomId: string, body: any) {
+    // NEW: defensive checks
+    const uid = String(body?.userId || '');
+    if (!chatroomId) throw new BadRequestException('chatroomId required');
+    if (!uid) throw new BadRequestException('userId required');
+
+    // NEW: enforce membership (prevents kicked users from sending)
+    const room: any = await Chatroom.findById(chatroomId).select('members').lean();
+    if (!room) throw new NotFoundException('Chatroom not found');
+
+    const members: string[] = (room.members || []).map((m: any) => String(m));
+    if (!members.includes(uid)) {
+      throw new ForbiddenException('You are not a member of this chatroom');
+    }
+
     const doc: any = await Message.create({
       chatroomId,
       text: body.text || null,
