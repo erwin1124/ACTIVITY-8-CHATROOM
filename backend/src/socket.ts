@@ -2,7 +2,7 @@ let io: any = null;
 
 export function initSocket(server: any, opts: any = {}) {
   if (io) return io;
-  // lazy require to avoid top-level type issues
+
   const { Server } = require('socket.io');
   const jwt = require('jsonwebtoken');
 
@@ -30,7 +30,7 @@ export function initSocket(server: any, opts: any = {}) {
 
   io.on('connection', (socket: any) => {
     console.log('[socket] client connected', socket.id, socket.user ? socket.user.uid : '(no user)');
-    // notify others that this user is online
+
     if (socket.user) {
       io.emit('user:online', { uid: socket.user.uid, displayName: socket.user.displayName || socket.user.email });
     }

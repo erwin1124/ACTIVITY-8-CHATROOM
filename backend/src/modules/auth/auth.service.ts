@@ -27,7 +27,7 @@ export class AuthService {
       const salt = await bcrypt.genSalt(10);
       const passwordHash = await bcrypt.hash(password, salt);
 
-      // create user (Mongo will generate _id)
+      
       const user = await User.create({ email, passwordHash, displayName, username });
       console.log('User.create result:', user);
 
@@ -39,7 +39,7 @@ export class AuthService {
       };
     } catch (err: any) {
       console.error('signup error:', err);
-      // Handle Mongo duplicate key error more gracefully and return field-specific message
+      
       if (err && (err.code === 11000 || err.name === 'MongoServerError')) {
         const keyValue = err.keyValue || {};
         const fields = Object.keys(keyValue);
@@ -47,7 +47,7 @@ export class AuthService {
           const msgs = fields.map(f => `${f} already exists`).join('; ');
           throw new BadRequestException(msgs);
         }
-        // fallback generic duplicate message
+        
         throw new BadRequestException('Duplicate key error');
       }
       throw new InternalServerErrorException('Failed to create user');
@@ -58,7 +58,7 @@ export class AuthService {
     const { email, password } = body;
     if (!email || !password) throw new BadRequestException('email and password required');
 
-    // find the user (not using lean so we keep mongoose document for safety)
+    
     const user: any = await User.findOne({ email });
     if (!user) throw new BadRequestException('Invalid email or password');
 
@@ -73,7 +73,7 @@ export class AuthService {
     };
   }
 
-  // return user by mongo id (without passwordHash)
+
   async getById(id: string) {
     if (!id) return null;
     const u: any = await User.findById(id).select('-passwordHash').lean();
@@ -81,7 +81,7 @@ export class AuthService {
     return { id: u._id.toString(), email: u.email, displayName: u.displayName, username: u.username, avatarUrl: u.avatarUrl, joinedChatrooms: u.joinedChatrooms || [] };
   }
 
-  // list users (exclude password)
+
   async listUsers() {
     const docs: any[] = await User.find().select('-passwordHash').limit(100).lean();
     return docs.map(d => ({ id: d._id.toString(), email: d.email, displayName: d.displayName, username: d.username, avatarUrl: d.avatarUrl, joinedChatrooms: d.joinedChatrooms || [] }));

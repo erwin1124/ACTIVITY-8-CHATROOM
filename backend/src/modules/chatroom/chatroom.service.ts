@@ -17,7 +17,7 @@ export class ChatroomService {
     const ownerId = body.ownerId || null;
     const members = ownerId ? [ownerId] : [];
     const doc = await Chatroom.create({ name: body.name, ownerId, members });
-    // add chatroom id to owner's joinedChatrooms for persistence
+    // add chatroom id to owner joinedChatrooms for persistence
     if (ownerId) {
       const User = mongoose.models.User;
       if (User) await User.findByIdAndUpdate(ownerId, { $addToSet: { joinedChatrooms: doc._id.toString() } }).lean();
@@ -60,7 +60,7 @@ export class ChatroomService {
       return { ok: false, error: 'not-found' };
     }
 
-    // ensure we add string id
+    // ensure string id will be added
     const uidStr = String(userId);
     const d: any = await Chatroom.findByIdAndUpdate(idStr, { $addToSet: { members: uidStr } }, { new: true }).lean();
     // also add to user's joinedChatrooms
